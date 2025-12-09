@@ -74,11 +74,16 @@ If you don't know what the software is, say UNKNOWN."""
     try:
         response = client.chat.completions.create(
             model="gpt-5.1",
-            max_tokens=300,
+            # max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
 
         text = response.choices[0].message.content
+
+        # DEBUG:
+        # print(f"\n--- Response for {software_name} ---")
+        # print(repr(text))
+        # print("--- End ---")
 
         # Parse response
         has_ai = "UNKNOWN"
