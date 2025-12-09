@@ -6,8 +6,8 @@ Reads a CSV/Excel file of approved software and uses AI to determine
 which ones contain embedded AI features that need security review.
 
 Usage:
-    python ai_software_scanner.py software_list.csv
-    python ai_software_scanner.py software_list.xlsx
+    python main.py software_list.csv
+    python main.py software_list.xlsx
 
 Output:
     - Console summary
@@ -19,8 +19,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
 import openpyxl
+from openai import OpenAI
 
 
 def load_software_list(filepath: str) -> list[str]:
@@ -45,9 +45,9 @@ def load_software_list(filepath: str) -> list[str]:
     return software
 
 
-def check_for_ai(client: anthropic.Anthropic, software_name: str) -> dict:
+def check_for_ai(client: OpenAI, software_name: str) -> dict:
     """
-    Use Claude to determine if software contains AI features.
+    Use OpenAI to determine if software contains AI features.
     Returns dict with: has_ai (bool), confidence (str), reason (str)
     """
     prompt = f"""You are a software analyst checking if applications contain AI/ML features.
@@ -72,13 +72,13 @@ Be conservative - if there's reasonable chance it has AI features, say YES.
 If you don't know what the software is, say UNKNOWN."""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = client.chat.completions.create(
+            model="gpt-5.1",
             max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        text = response.content[0].text
+        text = response.choices[0].message.content
 
         # Parse response
         has_ai = "UNKNOWN"
@@ -108,7 +108,7 @@ If you don't know what the software is, say UNKNOWN."""
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python ai_software_scanner.py <software_list.csv>")
+        print("Usage: python main.py <software_list.csv>")
         print("\nExpected CSV format:")
         print("  Software Name")
         print("  Microsoft Word")
@@ -131,8 +131,8 @@ def main():
         print("No software found in file. Check format.")
         sys.exit(1)
 
-    # Initialize Anthropic client
-    client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
+    # Initialize OpenAI client
+    client = OpenAI()  # Uses OPENAI_API_KEY env var
 
     # Check each software
     results = []
