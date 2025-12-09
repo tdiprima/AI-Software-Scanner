@@ -6,8 +6,9 @@ Reads an Excel file of approved software and uses AI to determine
 which ones contain embedded AI features that need security review.
 
 Usage:
-    python main.py software_inventory.xlsx
-    python main.py software_inventory.xlsx --sheet "MASTER Spreadsheet"
+    python main.py software_inventory.xlsx  # Uses MASTER Spreadsheet
+    python main.py software_inventory.xlsx --sheet "Dental School"  # Specific sheet
+    python main.py software_inventory.xlsx --all  # All sheets
 
 Output:
     - Console summary
@@ -19,76 +20,74 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
+import openpyxl
 from openai import OpenAI
 
 
-def load_software_list(filepath: str, sheet_name: str = "MASTER Spreadsheet") -> list[dict]:
-    """
-    Load software entries from Excel file.
-    Returns list of dicts with vendor, product, and description.
-    """
+def load_software_list(filepath: str, sheet_name: str = None, all_sheets: bool = False) -> list[dict]:
+    """Load software entries from Excel file."""
     software = []
+    wb = openpyxl.load_workbook(filepath)
     
-    df = pd.read_excel(filepath, sheet_name=sheet_name)
+    if all_sheets:
+        sheets_to_process = wb.sheetnames
+    else:
+        sheets_to_process = [sheet_name or "MASTER Spreadsheet"]
     
-    # Normalize column names (handle variations in spacing/naming)
-    col_map = {}
-    for col in df.columns:
-        col_lower = col.lower().strip()
-        if 'vendor' in col_lower and 'name' in col_lower:
-            col_map['vendor'] = col
-        elif col_lower == 'product name':
-            col_map['product'] = col
-        elif col_lower == 'description':
-            col_map['description'] = col
-        elif col_lower == 'status':
-            col_map['status'] = col
-    
-    if 'vendor' not in col_map or 'product' not in col_map:
-        raise ValueError(f"Could not find required columns. Found: {list(df.columns)}")
-    
-    for _, row in df.iterrows():
-        vendor = str(row.get(col_map['vendor'], '') or '').strip()
-        product = str(row.get(col_map['product'], '') or '').strip()
-        description = str(row.get(col_map.get('description', ''), '') or '').strip()
-        status = str(row.get(col_map.get('status', ''), '') or '').strip().upper()
-        
-        # Skip rows without vendor or product name
-        if not vendor or not product or vendor.lower() == 'nan' or product.lower() == 'nan':
-            continue
-        
-        # Optionally skip inactive entries
-        if status == 'INACTIVE':
+    for sheet in sheets_to_process:
+        if sheet not in wb.sheetnames:
+            print(f"Warning: Sheet '{sheet}' not found, skipping...")
             continue
             
-        # Clean up "nan" strings from description
-        if description.lower() == 'nan':
-            description = ''
+        ws = wb[sheet]
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            continue
+            
+        # Find column indices from header row
+        header = [str(c).lower().strip() if c else '' for c in rows[0]]
+        vendor_col = product_col = desc_col = status_col = None
         
-        software.append({
-            'vendor': vendor,
-            'product': product,
-            'description': description
-        })
+        for i, col in enumerate(header):
+            if 'vendor' in col and 'name' in col:
+                vendor_col = i
+            elif col == 'product name':
+                product_col = i
+            elif col == 'description':
+                desc_col = i
+            elif col == 'status':
+                status_col = i
+        
+        if vendor_col is None or product_col is None:
+            continue
+        
+        # Process data rows
+        for row in rows[1:]:
+            if len(row) <= max(vendor_col, product_col):
+                continue
+                
+            vendor = str(row[vendor_col] or '').strip()
+            product = str(row[product_col] or '').strip()
+            desc = str(row[desc_col] or '').strip() if desc_col and len(row) > desc_col else ''
+            status = str(row[status_col] or '').strip().upper() if status_col and len(row) > status_col else ''
+            
+            if not vendor or not product or vendor.lower() == 'nan' or product.lower() == 'nan':
+                continue
+            if status == 'INACTIVE':
+                continue
+            if desc.lower() == 'nan':
+                desc = ''
+            
+            software.append({'vendor': vendor, 'product': product, 'description': desc, 'sheet': sheet})
     
     return software
 
 
-def build_software_context(entry: dict) -> str:
-    """Build a descriptive string for the AI to analyze."""
-    parts = [f"{entry['vendor']} {entry['product']}"]
-    if entry['description']:
-        parts.append(f"Description: {entry['description']}")
-    return "\n".join(parts)
-
-
 def check_for_ai(client: OpenAI, entry: dict) -> dict:
-    """
-    Use OpenAI to determine if software contains AI features.
-    Returns dict with: has_ai (bool), confidence (str), reason (str)
-    """
-    software_context = build_software_context(entry)
+    """Use OpenAI to determine if software contains AI features."""
+    software_info = f"{entry['vendor']} {entry['product']}"
+    if entry['description']:
+        software_info += f"\nDescription: {entry['description']}"
     
     prompt = f"""You are a software analyst checking if applications contain AI/ML features.
 
@@ -96,7 +95,7 @@ For the following software, determine if it contains any embedded AI, machine le
 or features that might send data to AI cloud services.
 
 SOFTWARE:
-{software_context}
+{software_info}
 
 Consider things like:
 - Voice transcription or speech-to-text
@@ -114,7 +113,7 @@ CONFIDENCE: HIGH, MEDIUM, or LOW
 REASON: One sentence explaining your assessment
 
 Be conservative - if there's a reasonable chance it has AI features, say YES.
-If you don't recognize the software or can't determine its features, say UNKNOWN."""
+If you don't recognize the software, say UNKNOWN."""
 
     try:
         response = client.chat.completions.create(
@@ -122,7 +121,6 @@ If you don't recognize the software or can't determine its features, say UNKNOWN
             # max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
-
         text = response.choices[0].message.content
 
         # DEBUG:
@@ -131,88 +129,63 @@ If you don't recognize the software or can't determine its features, say UNKNOWN
         # print("--- End ---")
 
         # Parse response
-        has_ai = "UNKNOWN"
-        confidence = "LOW"
-        reason = "Could not determine"
-
+        has_ai, confidence, reason = "UNKNOWN", "LOW", "Could not determine"
         for line in text.split("\n"):
             line = line.strip()
             if line.startswith("HAS_AI:"):
                 value = line.replace("HAS_AI:", "").strip().upper()
-                if "YES" in value:
-                    has_ai = "YES"
-                elif "NO" in value:
-                    has_ai = "NO"
-                else:
-                    has_ai = "UNKNOWN"
+                has_ai = "YES" if "YES" in value else ("NO" if "NO" in value else "UNKNOWN")
             elif line.startswith("CONFIDENCE:"):
                 confidence = line.replace("CONFIDENCE:", "").strip().upper()
             elif line.startswith("REASON:"):
                 reason = line.replace("REASON:", "").strip()
 
         return {"has_ai": has_ai, "confidence": confidence, "reason": reason}
-
     except Exception as e:
         return {"has_ai": "ERROR", "confidence": "N/A", "reason": str(e)}
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python main.py <software_inventory.xlsx> [--sheet SHEET_NAME]")
-        print("\nExpected Excel format with columns:")
-        print("  - Vendor Name")
-        print("  - Product Name")
-        print("  - Description (optional)")
-        print("\nDefault sheet: 'MASTER Spreadsheet'")
+        print("Usage: python main.py <file.xlsx> [--sheet NAME | --all]")
         sys.exit(1)
 
     input_file = sys.argv[1]
+    sheet_name = None
+    all_sheets = "--all" in sys.argv
     
-    # Parse optional sheet name argument
-    sheet_name = "MASTER Spreadsheet"
     if "--sheet" in sys.argv:
-        sheet_idx = sys.argv.index("--sheet")
-        if sheet_idx + 1 < len(sys.argv):
-            sheet_name = sys.argv[sheet_idx + 1]
+        idx = sys.argv.index("--sheet")
+        if idx + 1 < len(sys.argv):
+            sheet_name = sys.argv[idx + 1]
 
     if not Path(input_file).exists():
         print(f"Error: File '{input_file}' not found")
         sys.exit(1)
 
     # Load software list
-    print(f"Loading software list from {input_file} (sheet: {sheet_name})...")
-    try:
-        software_list = load_software_list(input_file, sheet_name)
-    except Exception as e:
-        print(f"Error loading file: {e}")
-        sys.exit(1)
-        
-    print(f"Found {len(software_list)} software entries to check\n")
+    print(f"Loading from {input_file}...")
+    software_list = load_software_list(input_file, sheet_name, all_sheets)
+    print(f"Found {len(software_list)} software entries\n")
 
     if not software_list:
-        print("No software found in file. Check format.")
+        print("No software found.")
         sys.exit(1)
 
-    # Initialize OpenAI client
-    client = OpenAI()  # Uses OPENAI_API_KEY env var
-
-    # Check each software
-    results = []
-    flagged = []
+    client = OpenAI()
+    results, flagged = [], []
 
     for i, entry in enumerate(software_list, 1):
-        display_name = f"{entry['vendor']} - {entry['product']}"
-        print(f"[{i}/{len(software_list)}] Checking: {display_name}...", end=" ", flush=True)
+        name = f"{entry['vendor']} - {entry['product']}"
+        print(f"[{i}/{len(software_list)}] {name}...", end=" ", flush=True)
 
         result = check_for_ai(client, entry)
-        result["vendor"] = entry["vendor"]
-        result["product"] = entry["product"]
-        result["description"] = entry["description"]
+        result.update(entry)
         results.append(result)
 
         if result["has_ai"] in ("YES", "UNKNOWN"):
             flagged.append(result)
-            print(f"⚠️  FLAGGED ({result['has_ai']})")
+            print(f"⚠️ FLAGGED ({result['has_ai']})")
         else:
             print("✓ OK")
 
@@ -220,36 +193,17 @@ def main():
     output_file = "ai_scan_results.csv"
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Vendor", "Product", "Description", "Has AI", "Confidence", "Reason", "Needs Review"])
+        writer.writerow(["Sheet", "Vendor", "Product", "Description", "Has AI", "Confidence", "Reason", "Needs Review"])
         for r in results:
             needs_review = "YES" if r["has_ai"] in ("YES", "UNKNOWN") else "NO"
-            writer.writerow([
-                r["vendor"],
-                r["product"],
-                r["description"],
-                r["has_ai"],
-                r["confidence"],
-                r["reason"],
-                needs_review
-            ])
+            writer.writerow([r["sheet"], r["vendor"], r["product"], r["description"],
+                           r["has_ai"], r["confidence"], r["reason"], needs_review])
 
     # Print summary
     print("\n" + "=" * 60)
-    print("SCAN COMPLETE")
-    print("=" * 60)
-    print(f"Total software checked: {len(results)}")
-    print(f"Flagged for review:     {len(flagged)}")
-    print(f"Results saved to:       {output_file}")
-
-    if flagged:
-        print("\n⚠️  SOFTWARE FLAGGED FOR AI REVIEW:")
-        print("-" * 60)
-        for item in flagged:
-            print(f"  • {item['vendor']} - {item['product']}")
-            print(f"    Status: {item['has_ai']} (Confidence: {item['confidence']})")
-            print(f"    Reason: {item['reason']}\n")
-
-    print(f"\nScan completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"SCAN COMPLETE - {len(results)} checked, {len(flagged)} flagged")
+    print(f"Results saved to: {output_file}")
+    print(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 
 if __name__ == "__main__":
