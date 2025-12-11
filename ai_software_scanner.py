@@ -6,9 +6,9 @@ Reads an Excel file of approved software and uses AI to determine
 which ones contain embedded AI features that need security review.
 
 Usage:
-    python main.py software_inventory.xlsx  # Uses MASTER Spreadsheet
-    python main.py software_inventory.xlsx --sheet "Dental School"  # Specific sheet
-    python main.py software_inventory.xlsx --all  # All sheets
+    python ai_software_scanner.py software_inventory.xlsx  # Uses MASTER Spreadsheet
+    python ai_software_scanner.py software_inventory.xlsx --sheet "Dental School"  # Specific sheet
+    python ai_software_scanner.py software_inventory.xlsx --all  # All sheets
 
 Output:
     - Console summary
@@ -171,7 +171,7 @@ If you don't recognize the software, say UNKNOWN."""
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python main.py <file.xlsx> [--sheet NAME | --all]")
+        print("Usage: python ai_software_scanner.py <file.xlsx> [--sheet NAME | --all]")
         sys.exit(1)
 
     input_file = sys.argv[1]
