@@ -14,3 +14,13 @@ A simple Python tool that:
 * Uses AI to research each software and determine if it contains AI features
 * Flags any software that has AI components for human review
 * Outputs results (flagged vs. not flagged)
+
+## Environment Variables
+
+```sh
+export AZURE_OPENAI_ENDPOINT="https://your-org.openai.azure.com/"
+export AZURE_OPENAI_API_KEY="your-key"
+export AZURE_OPENAI_DEPLOYMENT="your-deployment-name"
+# OR
+export OPENAI_API_KEY="your-key"
+```
