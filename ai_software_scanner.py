@@ -29,7 +29,8 @@ def load_software_list(
 ) -> list[dict]:
     """Load software entries from Excel file."""
     software = []
-    wb = openpyxl.load_workbook(filepath)
+    # wb = openpyxl.load_workbook(filepath)
+    wb = openpyxl.load_workbook(filepath, data_only=True)
 
     if all_sheets:
         sheets_to_process = wb.sheetnames
@@ -139,7 +140,7 @@ If you don't recognize the software, say UNKNOWN."""
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5.1",
+            model="gpt-5.2",
             # max_tokens=300,
             messages=[{"role": "user", "content": prompt}],
         )
