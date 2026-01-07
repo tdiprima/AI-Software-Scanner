@@ -11,3 +11,5 @@ wheels/
 
 ai_scan_results.csv
 .claude/
+.mypy_cache/
+.ruff_cache/
