@@ -162,7 +162,7 @@ If you don't recognize the software, say Unknown."""
             if line.startswith("HAS_AI:"):
                 value = line.replace("HAS_AI:", "").strip().upper()
                 has_ai = (
-                    "Yes" if "Yes" in value else ("No" if "No" in value else "Unknown")
+                    "Yes" if "YES" in value else ("No" if "NO" in value else "Unknown")
                 )
             elif line.startswith("CONFIDENCE:"):
                 confidence = line.replace("CONFIDENCE:", "").strip().upper()
