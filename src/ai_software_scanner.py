@@ -9,6 +9,7 @@ Usage:
     python ai_software_scanner.py software_inventory.xlsx  # Uses MASTER Spreadsheet
     python ai_software_scanner.py software_inventory.xlsx --sheet "Dental School"  # Specific sheet
     python ai_software_scanner.py software_inventory.xlsx --all  # All sheets
+    python ai_software_scanner.py software_inventory.xlsx --debug  # Show AI responses
 
 Output:
     - Console summary
@@ -25,12 +26,13 @@ from ai_scanner_core import load_software_list, scan_software, save_results
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python ai_software_scanner.py <file.xlsx> [--sheet NAME | --all]")
+        print("Usage: python ai_software_scanner.py <file.xlsx> [--sheet NAME | --all | --debug]")
         sys.exit(1)
 
     input_file = sys.argv[1]
     sheet_name = None
     all_sheets = "--all" in sys.argv
+    debug = "--debug" in sys.argv
 
     if "--sheet" in sys.argv:
         idx = sys.argv.index("--sheet")
@@ -55,7 +57,7 @@ def main():
     model = "gpt-5.2"
 
     # Scan software
-    results, flagged = scan_software(client, model, software_list)
+    results, flagged = scan_software(client, model, software_list, debug=debug)
 
     # Save results
     output_file = "ai_scan_results.csv"
