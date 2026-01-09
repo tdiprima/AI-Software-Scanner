@@ -109,7 +109,7 @@ def has_data_quality_issues(entry: dict) -> bool:
 
 
 def check_for_ai(
-    client: Union[OpenAI, AzureOpenAI], model: str, entry: dict
+    client: Union[OpenAI, AzureOpenAI], model: str, entry: dict, debug: bool = False
 ) -> dict:
     """Use OpenAI/Azure OpenAI to determine if software contains AI features."""
     software_info = f"{entry['vendor']} {entry['product']}"
@@ -150,6 +150,11 @@ If you don't recognize the software, say Unknown."""
         )
         text = response.choices[0].message.content
 
+        if debug:
+            print(f"\n--- DEBUG: Raw AI Response ---")
+            print(text)
+            print("--- END DEBUG ---\n")
+
         # Parse response
         has_ai, confidence, reason = "Unknown", "Low", "Could not determine"
         for line in text.split("\n"):
@@ -174,7 +179,7 @@ If you don't recognize the software, say Unknown."""
 
 
 def scan_software(
-    client: Union[OpenAI, AzureOpenAI], model: str, software_list: list[dict]
+    client: Union[OpenAI, AzureOpenAI], model: str, software_list: list[dict], debug: bool = False
 ) -> tuple[list[dict], list[dict]]:
     """Scan software list for AI features and return results."""
     results, flagged = [], []
@@ -183,7 +188,7 @@ def scan_software(
         name = f"{entry['vendor']} - {entry['product']}"
         print(f"[{i}/{len(software_list)}] {name}...", end=" ", flush=True)
 
-        result = check_for_ai(client, model, entry)
+        result = check_for_ai(client, model, entry, debug=debug)
         result.update(entry)
         results.append(result)
 
