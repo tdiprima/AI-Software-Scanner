@@ -92,6 +92,22 @@ def load_software_list(
     return software
 
 
+def has_data_quality_issues(entry: dict) -> bool:
+    """Check if entry has data quality issues requiring review."""
+    # Check for missing data
+    if not entry.get("vendor") or not entry.get("product"):
+        return True
+
+    # Check for Excel error values
+    error_values = ["#REF!", "#N/A", "#VALUE!", "#DIV/0!", "#NAME?", "#NUM!", "#NULL!"]
+    for field in ["vendor", "product", "description"]:
+        value = str(entry.get(field, ""))
+        if any(err in value for err in error_values):
+            return True
+
+    return False
+
+
 def check_for_ai(
     client: Union[OpenAI, AzureOpenAI], model: str, entry: dict
 ) -> dict:
@@ -121,7 +137,7 @@ Consider things like:
 Respond in this exact format:
 HAS_AI: Yes or No or Unknown
 CONFIDENCE: High, Medium, or Low
-REASON: One concise sentence (max 255 characters) explaining your assessment
+REASON: One concise sentence (max 256 characters) explaining your assessment
 
 Do not use special characters or 'smart quotes' in your response.
 Be conservative - if there's a reasonable chance it has AI features, say Yes.
@@ -148,9 +164,9 @@ If you don't recognize the software, say Unknown."""
             elif line.startswith("REASON:"):
                 reason = line.replace("REASON:", "").strip()
 
-        # Truncate reason to 255 characters if needed
-        if len(reason) > 255:
-            reason = reason[:252].rsplit(" ", 1)[0] + "..."
+        # Truncate reason to 256 characters if needed
+        if len(reason) > 256:
+            reason = reason[:253].rsplit(" ", 1)[0] + "..."
 
         return {"has_ai": has_ai, "confidence": confidence, "reason": reason}
     except Exception as e:
@@ -180,6 +196,18 @@ def scan_software(
     return results, flagged
 
 
+def sanitize_csv_value(value: str) -> str:
+    """Sanitize CSV values to prevent formula injection."""
+    if not value:
+        return value
+
+    value_str = str(value)
+    # If value starts with =, +, -, or @, prefix with apostrophe
+    if value_str and value_str[0] in ("=", "+", "-", "@"):
+        return "'" + value_str
+    return value_str
+
+
 def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
     """Save scan results to CSV file."""
     with open(output_file, "w", newline="", encoding="utf-8") as f:
@@ -197,16 +225,30 @@ def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
             ]
         )
         for r in results:
-            needs_review = "Yes" if r["has_ai"] in ("Yes", "Unknown") else "No"
+            # Determine if needs review based on multiple factors
+            needs_review = "No"
+            if r["has_ai"] in ("Yes", "Unknown"):
+                needs_review = "Yes"
+            elif r.get("confidence", "").upper() == "LOW":
+                needs_review = "Yes"
+            elif has_data_quality_issues(r):
+                needs_review = "Yes"
+
+            # Sanitize values to prevent CSV formula injection
+            vendor = sanitize_csv_value(r["vendor"])
+            product = sanitize_csv_value(r["product"])
+            description = sanitize_csv_value(r["description"])
+            reason = sanitize_csv_value(r["reason"])
+
             writer.writerow(
                 [
                     r["sheet"],
-                    r["vendor"],
-                    r["product"],
-                    r["description"],
+                    vendor,
+                    product,
+                    description,
                     r["has_ai"],
                     r["confidence"],
-                    r["reason"],
+                    reason,
                     needs_review,
                 ]
             )
