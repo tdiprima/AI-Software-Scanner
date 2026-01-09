@@ -119,12 +119,13 @@ Consider things like:
 - Computer vision or image recognition
 
 Respond in this exact format:
-HAS_AI: YES or NO or UNKNOWN
-CONFIDENCE: HIGH, MEDIUM, or LOW
-REASON: One sentence explaining your assessment
+HAS_AI: Yes or No or Unknown
+CONFIDENCE: High, Medium, or Low
+REASON: One concise sentence (max 255 characters) explaining your assessment
 
-Be conservative - if there's a reasonable chance it has AI features, say YES.
-If you don't recognize the software, say UNKNOWN."""
+Do not use special characters or 'smart quotes' in your response.
+Be conservative - if there's a reasonable chance it has AI features, say Yes.
+If you don't recognize the software, say Unknown."""
 
     try:
         response = client.chat.completions.create(
@@ -134,18 +135,22 @@ If you don't recognize the software, say UNKNOWN."""
         text = response.choices[0].message.content
 
         # Parse response
-        has_ai, confidence, reason = "UNKNOWN", "LOW", "Could not determine"
+        has_ai, confidence, reason = "Unknown", "Low", "Could not determine"
         for line in text.split("\n"):
             line = line.strip()
             if line.startswith("HAS_AI:"):
                 value = line.replace("HAS_AI:", "").strip().upper()
                 has_ai = (
-                    "YES" if "YES" in value else ("NO" if "NO" in value else "UNKNOWN")
+                    "Yes" if "Yes" in value else ("No" if "No" in value else "Unknown")
                 )
             elif line.startswith("CONFIDENCE:"):
                 confidence = line.replace("CONFIDENCE:", "").strip().upper()
             elif line.startswith("REASON:"):
                 reason = line.replace("REASON:", "").strip()
+
+        # Truncate reason to 255 characters if needed
+        if len(reason) > 255:
+            reason = reason[:252].rsplit(" ", 1)[0] + "..."
 
         return {"has_ai": has_ai, "confidence": confidence, "reason": reason}
     except Exception as e:
@@ -166,7 +171,7 @@ def scan_software(
         result.update(entry)
         results.append(result)
 
-        if result["has_ai"] in ("YES", "UNKNOWN"):
+        if result["has_ai"] in ("Yes", "Unknown"):
             flagged.append(result)
             print(f"⚠️ FLAGGED ({result['has_ai']})")
         else:
@@ -192,7 +197,7 @@ def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
             ]
         )
         for r in results:
-            needs_review = "YES" if r["has_ai"] in ("YES", "UNKNOWN") else "NO"
+            needs_review = "Yes" if r["has_ai"] in ("Yes", "Unknown") else "No"
             writer.writerow(
                 [
                     r["sheet"],
