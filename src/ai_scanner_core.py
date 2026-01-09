@@ -92,24 +92,8 @@ def load_software_list(
     return software
 
 
-def has_data_quality_issues(entry: dict) -> bool:
-    """Check if entry has data quality issues requiring review."""
-    # Check for missing data
-    if not entry.get("vendor") or not entry.get("product"):
-        return True
-
-    # Check for Excel error values
-    error_values = ["#REF!", "#N/A", "#VALUE!", "#DIV/0!", "#NAME?", "#NUM!", "#NULL!"]
-    for field in ["vendor", "product", "description"]:
-        value = str(entry.get(field, ""))
-        if any(err in value for err in error_values):
-            return True
-
-    return False
-
-
 def check_for_ai(
-    client: Union[OpenAI, AzureOpenAI], model: str, entry: dict, debug: bool = False
+    client: Union[OpenAI, AzureOpenAI], model: str, entry: dict
 ) -> dict:
     """Use OpenAI/Azure OpenAI to determine if software contains AI features."""
     software_info = f"{entry['vendor']} {entry['product']}"
@@ -135,13 +119,12 @@ Consider things like:
 - Computer vision or image recognition
 
 Respond in this exact format:
-HAS_AI: Yes or No or Unknown
-CONFIDENCE: High, Medium, or Low
-REASON: One concise sentence (max 256 characters) explaining your assessment
+HAS_AI: YES or NO or UNKNOWN
+CONFIDENCE: HIGH, MEDIUM, or LOW
+REASON: One concise sentence (max 255 characters) explaining your assessment
 
-Do not use special characters or 'smart quotes' in your response.
-Be conservative - if there's a reasonable chance it has AI features, say Yes.
-If you don't recognize the software, say Unknown."""
+Be conservative - if there's a reasonable chance it has AI features, say YES.
+If you don't recognize the software, say UNKNOWN."""
 
     try:
         response = client.chat.completions.create(
@@ -150,28 +133,23 @@ If you don't recognize the software, say Unknown."""
         )
         text = response.choices[0].message.content
 
-        if debug:
-            print(f"\n--- DEBUG: Raw AI Response ---")
-            print(text)
-            print("--- END DEBUG ---\n")
-
         # Parse response
-        has_ai, confidence, reason = "Unknown", "Low", "Could not determine"
+        has_ai, confidence, reason = "UNKNOWN", "LOW", "Could not determine"
         for line in text.split("\n"):
             line = line.strip()
             if line.startswith("HAS_AI:"):
                 value = line.replace("HAS_AI:", "").strip().upper()
                 has_ai = (
-                    "Yes" if "YES" in value else ("No" if "NO" in value else "Unknown")
+                    "YES" if "YES" in value else ("NO" if "NO" in value else "UNKNOWN")
                 )
             elif line.startswith("CONFIDENCE:"):
                 confidence = line.replace("CONFIDENCE:", "").strip().upper()
             elif line.startswith("REASON:"):
                 reason = line.replace("REASON:", "").strip()
 
-        # Truncate reason to 256 characters if needed
-        if len(reason) > 256:
-            reason = reason[:253].rsplit(" ", 1)[0] + "..."
+        # Truncate reason to 255 characters if needed
+        if len(reason) > 255:
+            reason = reason[:252].rsplit(" ", 1)[0] + "..."
 
         return {"has_ai": has_ai, "confidence": confidence, "reason": reason}
     except Exception as e:
@@ -179,7 +157,7 @@ If you don't recognize the software, say Unknown."""
 
 
 def scan_software(
-    client: Union[OpenAI, AzureOpenAI], model: str, software_list: list[dict], debug: bool = False
+    client: Union[OpenAI, AzureOpenAI], model: str, software_list: list[dict]
 ) -> tuple[list[dict], list[dict]]:
     """Scan software list for AI features and return results."""
     results, flagged = [], []
@@ -188,29 +166,17 @@ def scan_software(
         name = f"{entry['vendor']} - {entry['product']}"
         print(f"[{i}/{len(software_list)}] {name}...", end=" ", flush=True)
 
-        result = check_for_ai(client, model, entry, debug=debug)
+        result = check_for_ai(client, model, entry)
         result.update(entry)
         results.append(result)
 
-        if result["has_ai"] in ("Yes", "Unknown"):
+        if result["has_ai"] in ("YES", "UNKNOWN"):
             flagged.append(result)
             print(f"⚠️ FLAGGED ({result['has_ai']})")
         else:
             print("✓ OK")
 
     return results, flagged
-
-
-def sanitize_csv_value(value: str) -> str:
-    """Sanitize CSV values to prevent formula injection."""
-    if not value:
-        return value
-
-    value_str = str(value)
-    # If value starts with =, +, -, or @, prefix with apostrophe
-    if value_str and value_str[0] in ("=", "+", "-", "@"):
-        return "'" + value_str
-    return value_str
 
 
 def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
@@ -230,30 +196,16 @@ def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
             ]
         )
         for r in results:
-            # Determine if needs review based on multiple factors
-            needs_review = "No"
-            if r["has_ai"] in ("Yes", "Unknown"):
-                needs_review = "Yes"
-            elif r.get("confidence", "").upper() == "LOW":
-                needs_review = "Yes"
-            elif has_data_quality_issues(r):
-                needs_review = "Yes"
-
-            # Sanitize values to prevent CSV formula injection
-            vendor = sanitize_csv_value(r["vendor"])
-            product = sanitize_csv_value(r["product"])
-            description = sanitize_csv_value(r["description"])
-            reason = sanitize_csv_value(r["reason"])
-
+            needs_review = "YES" if r["has_ai"] in ("YES", "UNKNOWN") else "NO"
             writer.writerow(
                 [
                     r["sheet"],
-                    vendor,
-                    product,
-                    description,
+                    r["vendor"],
+                    r["product"],
+                    r["description"],
                     r["has_ai"],
                     r["confidence"],
-                    reason,
+                    r["reason"],
                     needs_review,
                 ]
             )
