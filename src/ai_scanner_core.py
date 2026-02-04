@@ -71,8 +71,7 @@ def load_software_list(
             if (
                 not vendor
                 or not product
-                or vendor.lower() == "nan"
-                or product.lower() == "nan"
+                or "nan" in (vendor.lower(), product.lower())
             ):
                 continue
             if status == "INACTIVE":
