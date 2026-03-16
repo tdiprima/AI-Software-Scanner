@@ -17,6 +17,8 @@ A simple Python tool that:
 * Flags any software that has AI components for human review
 * Outputs results (flagged vs. not flagged)
 
+Planning to integrate with Drupal
+
 ## Environment Variables
 
 ```sh
