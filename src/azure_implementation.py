@@ -21,18 +21,25 @@ Environment Variables Required:
     AZURE_OPENAI_DEPLOYMENT
 """
 
+import logging
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from openai import AzureOpenAI
-from ai_scanner_core import load_software_list, scan_software, save_results
+from ai_scanner_core import configure_logging, load_software_list, scan_software, save_results
+
+logger = logging.getLogger(__name__)
 
 
-def main():
+def parse_args() -> tuple:
+    """Parse command-line arguments from sys.argv."""
     if len(sys.argv) < 2:
-        print("Usage: python azure_implementation.py <file.xlsx> [--sheet NAME | --all | --debug]")
+        print(
+            "Usage: python azure_implementation.py <file.xlsx> [--sheet NAME | --all | --debug]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     input_file = sys.argv[1]
@@ -45,39 +52,59 @@ def main():
         if idx + 1 < len(sys.argv):
             sheet_name = sys.argv[idx + 1]
 
-    if not Path(input_file).exists():
-        print(f"Error: File '{input_file}' not found")
+    return input_file, sheet_name, all_sheets, debug
+
+
+def load_azure_config() -> tuple[str, str, str]:
+    """Load and validate Azure OpenAI configuration from environment variables."""
+    required_vars = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT"]
+    missing = [var for var in required_vars if not os.environ.get(var)]
+
+    if missing:
+        for var in missing:
+            logger.error("Missing required environment variable: %s", var)
         sys.exit(1)
 
-    # Load software list
-    print(f"Loading from {input_file}...")
+    return (
+        os.environ["AZURE_OPENAI_ENDPOINT"],
+        os.environ["AZURE_OPENAI_API_KEY"],
+        os.environ["AZURE_OPENAI_DEPLOYMENT"],
+    )
+
+
+def main():
+    input_file, sheet_name, all_sheets, debug = parse_args()
+    configure_logging(debug)
+
+    endpoint, api_key, deployment = load_azure_config()
+
+    if not Path(input_file).exists():
+        logger.error("File '%s' not found", input_file)
+        sys.exit(1)
+
+    logger.info("Loading from %s...", input_file)
     software_list = load_software_list(input_file, sheet_name, all_sheets)
-    print(f"Found {len(software_list)} software entries\n")
+    logger.info("Found %d software entries", len(software_list))
 
     if not software_list:
-        print("No software found.")
+        logger.error("No software found")
         sys.exit(1)
 
-    # Initialize Azure OpenAI client
     client = AzureOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        api_version="2024-02-15-preview"
+        azure_endpoint=endpoint,
+        api_key=api_key,
+        api_version="2024-02-15-preview",
     )
-    model = os.environ["AZURE_OPENAI_DEPLOYMENT"]
 
-    # Scan software
-    results, flagged = scan_software(client, model, software_list, debug=debug)
+    results, flagged = scan_software(client, deployment, software_list)
 
-    # Save results
     output_file = "ai_scan_results.csv"
     save_results(results, output_file)
 
-    # Print summary
-    print("\n" + "=" * 60)
-    print(f"SCAN COMPLETE - {len(results)} checked, {len(flagged)} flagged")
-    print(f"Results saved to: {output_file}")
-    print(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info("=" * 60)
+    logger.info("SCAN COMPLETE - %d checked, %d flagged", len(results), len(flagged))
+    logger.info("Results saved to: %s", output_file)
+    logger.info("Completed: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
 
 if __name__ == "__main__":

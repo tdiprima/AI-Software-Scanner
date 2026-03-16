@@ -5,10 +5,25 @@ Shared functionality for scanning software for AI features using OpenAI or Azure
 """
 
 import csv
+import logging
+import os
 from typing import Union
 
 import openpyxl
 from openai import OpenAI, AzureOpenAI
+
+logger = logging.getLogger(__name__)
+
+
+def configure_logging(debug: bool = False) -> None:
+    """Configure root logging from LOG_LEVEL env var or debug flag."""
+    level_name = os.environ.get("LOG_LEVEL", "DEBUG" if debug else "INFO").upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
 
 def load_software_list(
@@ -18,14 +33,11 @@ def load_software_list(
     software = []
     wb = openpyxl.load_workbook(filepath, data_only=True)
 
-    if all_sheets:
-        sheets_to_process = wb.sheetnames
-    else:
-        sheets_to_process = [sheet_name or "MASTER Spreadsheet"]
+    sheets_to_process = wb.sheetnames if all_sheets else [sheet_name or "MASTER Spreadsheet"]
 
     for sheet in sheets_to_process:
         if sheet not in wb.sheetnames:
-            print(f"Warning: Sheet '{sheet}' not found, skipping...")
+            logger.warning("Sheet '%s' not found, skipping", sheet)
             continue
 
         ws = wb[sheet]
@@ -33,7 +45,6 @@ def load_software_list(
         if not rows:
             continue
 
-        # Find column indices from header row
         header = [str(c).lower().strip() if c else "" for c in rows[0]]
         vendor_col = product_col = desc_col = status_col = None
 
@@ -48,9 +59,9 @@ def load_software_list(
                 status_col = i
 
         if vendor_col is None or product_col is None:
+            logger.warning("Sheet '%s' missing required columns (vendor, product), skipping", sheet)
             continue
 
-        # Process data rows
         for row in rows[1:]:
             if len(row) <= max(vendor_col, product_col):
                 continue
@@ -68,11 +79,7 @@ def load_software_list(
                 else ""
             )
 
-            if (
-                not vendor
-                or not product
-                or "nan" in (vendor.lower(), product.lower())
-            ):
+            if not vendor or not product or "nan" in (vendor.lower(), product.lower()):
                 continue
             if status == "INACTIVE":
                 continue
@@ -80,12 +87,7 @@ def load_software_list(
                 desc = ""
 
             software.append(
-                {
-                    "vendor": vendor,
-                    "product": product,
-                    "description": desc,
-                    "sheet": sheet,
-                }
+                {"vendor": vendor, "product": product, "description": desc, "sheet": sheet}
             )
 
     return software
@@ -131,39 +133,40 @@ If you don't recognize the software, say UNKNOWN."""
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.choices[0].message.content
+        logger.debug("Raw AI response for '%s %s': %s", entry["vendor"], entry["product"], text)
 
-        # Parse response
         has_ai, confidence, reason = "UNKNOWN", "LOW", "Could not determine"
         for line in text.split("\n"):
             line = line.strip()
             if line.startswith("HAS_AI:"):
                 value = line.replace("HAS_AI:", "").strip().upper()
-                has_ai = (
-                    "YES" if "YES" in value else ("NO" if "NO" in value else "UNKNOWN")
-                )
+                has_ai = "YES" if "YES" in value else ("NO" if "NO" in value else "UNKNOWN")
             elif line.startswith("CONFIDENCE:"):
                 confidence = line.replace("CONFIDENCE:", "").strip().upper()
             elif line.startswith("REASON:"):
                 reason = line.replace("REASON:", "").strip()
 
-        # Truncate reason to 255 characters if needed
         if len(reason) > 255:
             reason = reason[:252].rsplit(" ", 1)[0] + "..."
 
         return {"has_ai": has_ai, "confidence": confidence, "reason": reason}
     except Exception as e:
+        logger.error(
+            "AI check failed for '%s %s': %s", entry["vendor"], entry["product"], e
+        )
         return {"has_ai": "ERROR", "confidence": "N/A", "reason": str(e)}
 
 
 def scan_software(
     client: Union[OpenAI, AzureOpenAI], model: str, software_list: list[dict]
 ) -> tuple[list[dict], list[dict]]:
-    """Scan software list for AI features and return results."""
+    """Scan software list for AI features and return (all_results, flagged_results)."""
     results, flagged = [], []
+    total = len(software_list)
 
     for i, entry in enumerate(software_list, 1):
         name = f"{entry['vendor']} - {entry['product']}"
-        print(f"[{i}/{len(software_list)}] {name}...", end=" ", flush=True)
+        logger.info("[%d/%d] %s", i, total, name)
 
         result = check_for_ai(client, model, entry)
         result.update(entry)
@@ -171,40 +174,23 @@ def scan_software(
 
         if result["has_ai"] in ("YES", "UNKNOWN"):
             flagged.append(result)
-            print(f"⚠️ FLAGGED ({result['has_ai']})")
+            logger.info("  FLAGGED (%s)", result["has_ai"])
         else:
-            print("✓ OK")
+            logger.info("  OK")
 
     return results, flagged
 
 
-def save_results(results: list[dict], output_file: str = "ai_scan_results.csv"):
+def save_results(results: list[dict], output_file: str = "ai_scan_results.csv") -> None:
     """Save scan results to CSV file."""
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(
-            [
-                "Sheet",
-                "Vendor",
-                "Product",
-                "Description",
-                "Has AI",
-                "Confidence",
-                "Reason",
-                "Needs Review",
-            ]
+            ["Sheet", "Vendor", "Product", "Description", "Has AI", "Confidence", "Reason", "Needs Review"]
         )
         for r in results:
             needs_review = "YES" if r["has_ai"] in ("YES", "UNKNOWN") else "NO"
-            writer.writerow(
-                [
-                    r["sheet"],
-                    r["vendor"],
-                    r["product"],
-                    r["description"],
-                    r["has_ai"],
-                    r["confidence"],
-                    r["reason"],
-                    needs_review,
-                ]
-            )
+            writer.writerow([
+                r["sheet"], r["vendor"], r["product"], r["description"],
+                r["has_ai"], r["confidence"], r["reason"], needs_review,
+            ])
