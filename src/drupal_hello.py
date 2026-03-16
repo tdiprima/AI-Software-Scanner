@@ -101,8 +101,8 @@ def main() -> None:
     except requests.exceptions.SSLError as exc:
         logger.error("SSL error connecting to %s: %s", base_url, exc)
         sys.exit(1)
-    except requests.exceptions.ConnectionError:
-        logger.error("Could not reach %s — check DRUPAL_BASE_URL and network access", base_url)
+    except requests.exceptions.ConnectionError as exc:
+        logger.error("Could not reach %s: %s", base_url, exc)
         sys.exit(1)
     except requests.exceptions.HTTPError as exc:
         logger.error("HTTP error: %s", exc)
