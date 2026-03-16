@@ -1,6 +1,6 @@
 # AI Software Scanner
 
-![](AI-scan-service.png)
+<img src="AI-scan-service.png" width="300">
 
 ## The Problem:
 
