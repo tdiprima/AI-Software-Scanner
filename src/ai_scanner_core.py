@@ -10,7 +10,7 @@ import os
 from typing import Union
 
 import openpyxl
-from openai import OpenAI, AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,7 @@ which ones contain embedded AI features that need security review.
 
 Usage:
     python azure_implementation.py software_inventory.xlsx  # Uses MASTER Spreadsheet
-    python azure_implementation.py software_inventory.xlsx --sheet "Sheet 1"  # Specific sheet
+    python azure_implementation.py software_inventory.xlsx --sheet "Sheet1"  # Specific sheet
     python azure_implementation.py software_inventory.xlsx --all  # All sheets
     python azure_implementation.py software_inventory.xlsx --debug  # Show AI responses
 
@@ -28,7 +28,9 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import AzureOpenAI
-from ai_scanner_core import configure_logging, load_software_list, scan_software, save_results
+
+from ai_scanner_core import (configure_logging, load_software_list,
+                             save_results, scan_software)
 
 logger = logging.getLogger(__name__)
 
